@@ -31,7 +31,9 @@ import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
+from typing import List, Tuple
 
+# TODO(syoyo): expand WN layers
 
 @torch.jit.script
 def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels):
@@ -49,8 +51,9 @@ class Upsample1d(torch.nn.Module):
         self.scale = scale
 
     def forward(self, x):
+        scale = float(self.scale)
         y = F.interpolate(
-            x, scale_factor=self.scale, mode='nearest')
+            x, scale_factor=scale, mode='nearest')
         return y
 
 
@@ -93,26 +96,30 @@ class Invertible1x1Conv(torch.nn.Module):
         W = W.view(c, c, 1)
         self.conv.weight.data = W
 
-    def forward(self, z, reverse=False):
+    def forward(self, z): # , reverse=False):
         # shape
         batch_size, group_size, n_of_groups = z.size()
         W = self.conv.weight.squeeze()
 
-        if reverse:
-            if not hasattr(self, 'W_inverse'):
-                # Reverse computation
-                W_inverse = W.float().inverse()
-                W_inverse = Variable(W_inverse[..., None])
-                self.W_inverse = W_inverse.half()
-            self.W_inverse = self.W_inverse.to(torch.float32)
-            z = F.conv1d(z, self.W_inverse, bias=None, stride=1, padding=0)
-            return z
-        else:
-            # Forward computation
-            log_det_W = batch_size * n_of_groups * torch.logdet(W)
-            z = self.conv(z)
-            return z, log_det_W
+        #if reverse:
+        #    if not hasattr(self, 'W_inverse'):
+        #        # Reverse computation
+        #        W_inverse = W.float().inverse()
+        #        W_inverse = Variable(W_inverse[..., None])
+        #        self.W_inverse = W_inverse.half()
+        #    self.W_inverse = self.W_inverse.to(torch.float32)
+        #    z = F.conv1d(z, self.W_inverse, bias=None, stride=1, padding=0)
+        #    return z
+        #else:
+        #    # Forward computation
+        #    log_det_W = batch_size * n_of_groups * torch.logdet(W)
+        #    z = self.conv(z)
+        #    return z, log_det_W
 
+        # Forward computation
+        log_det_W = batch_size * n_of_groups * torch.logdet(W)
+        z = self.conv(z)
+        return z, log_det_W
 
 class WN(torch.nn.Module):
     """
@@ -156,10 +163,10 @@ class WN(torch.nn.Module):
             res_skip_layer = torch.nn.utils.weight_norm(res_skip_layer, name='weight')
             self.res_skip_layers.append(res_skip_layer)
                         
-    def forward(self, forward_input):
+    def forward(self, forward_input: Tuple[torch.Tensor, torch.Tensor]):
         audio, spect = forward_input
         audio = self.start(audio)
-        n_channels_tensor = torch.IntTensor([self.n_channels])
+        n_channels_tensor = torch.tensor([self.n_channels]).int()
         # pass all the mel_spectrograms to cond_layer
         spect = self.cond_layer(spect)
         for i in range(self.n_layers):
@@ -171,11 +178,12 @@ class WN(torch.nn.Module):
             else:
                 cond = spec
             acts = fused_add_tanh_sigmoid_multiply(
-                self.in_layers[i](audio),
+                # HACK
+                self.in_layers[0](audio),
                 cond, 
                 n_channels_tensor)
             # res_skip
-            res_skip_acts = self.res_skip_layers[i](acts)
+            res_skip_acts = self.res_skip_layers[0](acts) # HACK
             audio = audio + res_skip_acts
         return self.end(audio)
 
@@ -205,7 +213,7 @@ class SqueezeWave(torch.nn.Module):
 
         self.n_remaining_channels = n_remaining_channels  # Useful during inference
 
-    def forward(self, forward_input):
+    def forward(self, forward_input: Tuple[torch.Tensor, torch.Tensor]):
         """
         forward_input[0] = mel_spectrogram:  batch x n_mel_channels x frames
         forward_input[1] = audio: batch x time
@@ -223,14 +231,14 @@ class SqueezeWave(torch.nn.Module):
                 output_audio.append(audio[:,:self.n_early_size,:])
                 audio = audio[:,self.n_early_size:,:]
 
-            audio, log_det_W = self.convinv[k](audio)
+            audio, log_det_W = self.convinv[0](audio) # HACK
             log_det_W_list.append(log_det_W)
 
             n_half = int(audio.size(1)/2)
             audio_0 = audio[:,:n_half,:]
             audio_1 = audio[:,n_half:,:]
 
-            output = self.WN[k]((audio_0, spect))
+            output = self.WN[0]((audio_0, spect)) # HACK
             log_s = output[:, n_half:, :]
             b = output[:, :n_half, :]
 
