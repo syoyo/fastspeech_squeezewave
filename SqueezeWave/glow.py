@@ -31,6 +31,7 @@ import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
+from typing import List, Tuple
 
 
 @torch.jit.script
@@ -49,8 +50,9 @@ class Upsample1d(torch.nn.Module):
         self.scale = scale
 
     def forward(self, x):
+        scale: float = float(self.scale)
         y = F.interpolate(
-            x, scale_factor=self.scale, mode='nearest')
+            x, scale_factor=scale, mode='nearest')
         return y
 
 
@@ -93,30 +95,41 @@ class Invertible1x1Conv(torch.nn.Module):
         W = W.view(c, c, 1)
         self.conv.weight.data = W
 
-    def forward(self, z, reverse=False):
+    def forward(self, z): #, reverse=False):
         # shape
         batch_size, group_size, n_of_groups = z.size()
         W = self.conv.weight.squeeze()
 
-        if reverse:
-            if not hasattr(self, 'W_inverse'):
-                print("W_inverse")
-                # Reverse computation
-                W_inverse = W.float().inverse()
-                W_inverse = Variable(W_inverse[..., None])
-                self.W_inverse = W_inverse.half()
-            else:
-                print("has W_inverse")
-            self.W_inverse = self.W_inverse.to(torch.float32)
-            z = F.conv1d(z, self.W_inverse, bias=None, stride=1, padding=0)
-            return z
-        else:
-            print("forward")
-            # Forward computation
-            log_det_W = batch_size * n_of_groups * torch.logdet(W)
-            z = self.conv(z)
-            return z, log_det_W
+        #if reverse:
+        #    #if not hasattr(self, 'W_inverse'):
+        #    #    print("W_inverse")
+        #    #    # Reverse computation
+        #    #    W_inverse = W.float().inverse()
+        #    #    W_inverse = Variable(W_inverse[..., None])
+        #    #    self.W_inverse = W_inverse.half()
+        #    #else:
+        #    #    print("has W_inverse")
+        #    #self.W_inverse = self.W_inverse.to(torch.float32)
+        #    #z = F.conv1d(z, self.W_inverse, bias=None, stride=1, padding=0)
 
+        #    # Reverse computation
+        #    W_inverse = W.float().inverse()
+        #    W_inverse = W_inverse[..., None]
+        #    z = F.conv1d(z, W_inverse, bias=None, stride=1, padding=0)
+
+        #    return z
+        #else:
+        #    print("forward")
+        #    # Forward computation
+        #    log_det_W = batch_size * n_of_groups * torch.logdet(W)
+        #    z = self.conv(z)
+        #    return z, log_det_W
+
+        # Reverse computation
+        W_inverse = W.float().inverse()
+        W_inverse = W_inverse[..., None]
+        z = F.conv1d(z, W_inverse, bias=None, stride=1, padding=0)
+        return z
 
 class WN(torch.nn.Module):
     """
@@ -160,27 +173,143 @@ class WN(torch.nn.Module):
             res_skip_layer = torch.nn.utils.weight_norm(res_skip_layer, name='weight')
             self.res_skip_layers.append(res_skip_layer)
                         
-    def forward(self, forward_input):
+    def forward(self, forward_input: Tuple[torch.Tensor, torch.Tensor]):
         audio, spect = forward_input
         audio = self.start(audio)
-        n_channels_tensor = torch.IntTensor([self.n_channels])
+        n_channels_tensor = torch.tensor([self.n_channels]).int()
         # pass all the mel_spectrograms to cond_layer
         spect = self.cond_layer(spect)
-        for i in range(self.n_layers):
-            # split the corresponding mel_spectrogram
-            spect_offset = i*2*self.n_channels
-            spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
-            if audio.size(2) > spec.size(2):
-                cond = self.upsample(spec)
-            else:
-                cond = spec
-            acts = fused_add_tanh_sigmoid_multiply(
-                self.in_layers[i](audio),
-                cond, 
-                n_channels_tensor)
-            # res_skip
-            res_skip_acts = self.res_skip_layers[i](acts)
-            audio = audio + res_skip_acts
+
+        assert self.n_layers == 8
+
+        i = 0
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[0](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[0](acts)
+        audio = audio + res_skip_acts
+
+        i = 1
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[1](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[1](acts)
+        audio = audio + res_skip_acts
+
+        i = 2
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[2](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[2](acts)
+        audio = audio + res_skip_acts
+
+        i = 3
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[3](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[3](acts)
+        audio = audio + res_skip_acts
+
+        i = 4
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[4](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[4](acts)
+        audio = audio + res_skip_acts
+
+        i = 5
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[5](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[5](acts)
+        audio = audio + res_skip_acts
+
+        i = 6
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[6](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[6](acts)
+        audio = audio + res_skip_acts
+
+        i = 7
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[7](audio),
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[7](acts)
+        audio = audio + res_skip_acts
+
         return self.end(audio)
 
 
@@ -209,75 +338,278 @@ class SqueezeWave(torch.nn.Module):
 
         self.n_remaining_channels = n_remaining_channels  # Useful during inference
 
-    def forward(self, forward_input):
-        """
-        forward_input[0] = mel_spectrogram:  batch x n_mel_channels x frames
-        forward_input[1] = audio: batch x time
-        """
-        spect, audio = forward_input
+    #def forward(self, forward_input: Tuple[torch.Tensor, torch.Tensor]):
+    #    """
+    #    forward_input[0] = mel_spectrogram:  batch x n_mel_channels x frames
+    #    forward_input[1] = audio: batch x time
+    #    """
+    #    spect, audio = forward_input
 
-        audio = audio.unfold(
-            1, self.n_audio_channel, self.n_audio_channel).permute(0, 2, 1)
-        output_audio = []
-        log_s_list = []
-        log_det_W_list = []
+    #    audio = audio.unfold(
+    #        1, self.n_audio_channel, self.n_audio_channel).permute(0, 2, 1)
+    #    output_audio = []
+    #    log_s_list = []
+    #    log_det_W_list = []
 
-        for k in range(self.n_flows):
-            if k % self.n_early_every == 0 and k > 0:
-                output_audio.append(audio[:,:self.n_early_size,:])
-                audio = audio[:,self.n_early_size:,:]
+    #    for k in range(self.n_flows):
+    #        if k % self.n_early_every == 0 and k > 0:
+    #            output_audio.append(audio[:,:self.n_early_size,:])
+    #            audio = audio[:,self.n_early_size:,:]
 
-            audio, log_det_W = self.convinv[k](audio)
-            log_det_W_list.append(log_det_W)
+    #        audio, log_det_W = self.convinv[k](audio)
+    #        log_det_W_list.append(log_det_W)
 
-            n_half = int(audio.size(1)/2)
-            audio_0 = audio[:,:n_half,:]
-            audio_1 = audio[:,n_half:,:]
+    #        n_half = int(audio.size(1)/2)
+    #        audio_0 = audio[:,:n_half,:]
+    #        audio_1 = audio[:,n_half:,:]
 
-            output = self.WN[k]((audio_0, spect))
-            log_s = output[:, n_half:, :]
-            b = output[:, :n_half, :]
+    #        output = self.WN[k]((audio_0, spect))
+    #        log_s = output[:, n_half:, :]
+    #        b = output[:, :n_half, :]
 
-            audio_1 = (torch.exp(log_s))*audio_1 + b
-            log_s_list.append(log_s)
-            audio = torch.cat([audio_0, audio_1], 1)
+    #        audio_1 = (torch.exp(log_s))*audio_1 + b
+    #        log_s_list.append(log_s)
+    #        audio = torch.cat([audio_0, audio_1], 1)
 
-        output_audio.append(audio)
-        return torch.cat(output_audio, 1), log_s_list, log_det_W_list
+    #    output_audio.append(audio)
+    #    return torch.cat(output_audio, 1), log_s_list, log_det_W_list
 
-    def infer(self, spect, sigma=1.0):
+    def forward(self, spect, sigma: float =1.0):
         spect_size = spect.size()
         l = spect.size(2)*(256 // self.n_audio_channel)
 
-        spect = spect.to(torch.float32)
-        if spect.type() == 'torch.HalfTensor':
-            audio = torch.HalfTensor(spect.size(0),
-                                          self.n_remaining_channels,
-                                          l).normal_()
-        else:
-            audio = torch.FloatTensor(spect.size(0),
-                                           self.n_remaining_channels,
-                                           l).normal_()
+        #spect = spect.to(torch.float32)
+        audio = torch.zeros(spect.size(0),
+                                       self.n_remaining_channels,
+                                       l, dtype=torch.float32).normal_()
 
-        for k in reversed(range(self.n_flows)):
-            n_half = int(audio.size(1)/2)
-            audio_0 = audio[:,:n_half,:]
-            audio_1 = audio[:,n_half:,:]
-            output = self.WN[k]((audio_0, spect))
+        assert self.n_flows == 12
 
-            s = output[:, n_half:, :]
-            b = output[:, :n_half, :]
-            audio_1 = (audio_1 - b)/torch.exp(s)
-            audio = torch.cat([audio_0, audio_1],1)
+        k = 11
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[11]((audio_0, spect))
 
-            audio = self.convinv[k](audio, reverse=True)
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
 
-            if k % self.n_early_every == 0 and k > 0:
-                if spect.type() == 'torch.HalfTensor':
-                    z = torch.HalfTensor(spect.size(0), self.n_early_size, l).normal_()
-                else:
-                    z = torch.FloatTensor(spect.size(0), self.n_early_size, l).normal_()
-                audio = torch.cat((sigma*z, audio),1)
+        audio = self.convinv[11](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 10
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[10]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[10](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 9
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[9]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[9](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 8
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[8]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[8](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 7
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[7]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[7](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 6
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[6]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[6](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 5
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[5]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[5](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 4
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[4]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[4](audio) #, reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 3
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[3]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[3](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 2
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[2]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[2](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 1
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[1]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[1](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        k = 0
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[0]((audio_0, spect))
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[0](audio) # , reverse=True)
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+
+        #for k in reversed(range(self.n_flows)):
+        #    n_half = int(audio.size(1)/2)
+        #    audio_0 = audio[:,:n_half,:]
+        #    audio_1 = audio[:,n_half:,:]
+        #    output = self.WN[k]((audio_0, spect))
+
+        #    s = output[:, n_half:, :]
+        #    b = output[:, :n_half, :]
+        #    audio_1 = (audio_1 - b)/torch.exp(s)
+        #    audio = torch.cat([audio_0, audio_1],1)
+
+        #    audio = self.convinv[k](audio, reverse=True)
+
+        #    if k % self.n_early_every == 0 and k > 0:
+        #        if spect.type() == 'torch.HalfTensor':
+        #            raise "HalfTensor"
+        #            z = torch.HalfTensor(spect.size(0), self.n_early_size, l).normal_()
+        #        else:
+        #            z = torch.FloatTensor(spect.size(0), self.n_early_size, l).normal_()
+        #        audio = torch.cat((sigma*z, audio),1)
 
         audio = audio.permute(0,2,1).contiguous().view(audio.size(0), -1).data
         return audio

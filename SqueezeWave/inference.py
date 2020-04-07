@@ -52,6 +52,10 @@ def main(mel_files, squeezewave_path, sigma, output_dir, sampling_rate, is_fp16,
     #torch.save(squeezewave.state_dict(), "weights.pt")
 
     squeezewave = SqueezeWave(**squeezewave_config)
+
+    trace = torch.jit.script(squeezewave)
+    trace.save("squeezewave.torchscript.cpu.pt")
+
     squeezewave.load_state_dict(torch.load("weights.pt", map_location=device))
 
     if is_fp16:
@@ -67,9 +71,11 @@ def main(mel_files, squeezewave_path, sigma, output_dir, sampling_rate, is_fp16,
         file_name = os.path.splitext(os.path.basename(file_path))[0]
         mel = torch.load(file_path,map_location=device)
         mel = torch.autograd.Variable(mel)
-        mel = mel.half() 
+        #mel = mel.half() 
         with torch.no_grad():
-            audio = squeezewave.infer(mel, sigma=sigma).float()
+            audio = squeezewave.forward(mel, sigma=sigma)
+            audio = audio.float()
+            print(audio.dtype)
             if denoiser_strength > 0:
                 audio = denoiser(audio, denoiser_strength)
             audio = audio * MAX_WAV_VALUE
