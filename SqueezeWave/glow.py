@@ -58,7 +58,7 @@ class Upsample1d(torch.nn.Module):
 
 
 class SqueezeWaveLoss(torch.nn.Module):
-    def __init__(self, sigma=1.0):
+    def __init__(self, sigma:float =1.0):
         super(SqueezeWaveLoss, self).__init__()
         self.sigma = sigma
 
@@ -96,32 +96,24 @@ class Invertible1x1Conv(torch.nn.Module):
         W = W.view(c, c, 1)
         self.conv.weight.data = W
 
-    def forward(self, z): # , reverse=False):
+    # For inference, reverse is alaways true
+    def forward(self, z): # , reverse=False): 
         # shape
         batch_size, group_size, n_of_groups = z.size()
         W = self.conv.weight.squeeze()
 
-        #if reverse:
-        #    if not hasattr(self, 'W_inverse'):
-        #        # Reverse computation
-        #        W_inverse = W.float().inverse()
-        #        W_inverse = Variable(W_inverse[..., None])
-        #        self.W_inverse = W_inverse.half()
-        #    self.W_inverse = self.W_inverse.to(torch.float32)
-        #    z = F.conv1d(z, self.W_inverse, bias=None, stride=1, padding=0)
-        #    return z
-        #else:
-        #    # Forward computation
-        #    log_det_W = batch_size * n_of_groups * torch.logdet(W)
-        #    z = self.conv(z)
-        #    return z, log_det_W
+        # Always compute W_inverse
 
-        # Forward computation
-        log_det_W = batch_size * n_of_groups * torch.logdet(W)
-        z = self.conv(z)
-        return z, log_det_W
+        # Reverse computation
+        W_inverse = W.float().inverse() # [N, M]
+
+        # [N, M, 1]
+        W_inverse = W_inverse[..., None]
+        z = F.conv1d(z, W_inverse, bias=None, stride=1, padding=0)
+        return z
 
 class WN(torch.nn.Module):
+
     """
     This is the WaveNet like layer for the affine coupling.  The primary difference
     from WaveNet is the convolutions need not be causal.  There is also no dilation
@@ -169,26 +161,163 @@ class WN(torch.nn.Module):
         n_channels_tensor = torch.tensor([self.n_channels]).int()
         # pass all the mel_spectrograms to cond_layer
         spect = self.cond_layer(spect)
-        for i in range(self.n_layers):
-            # split the corresponding mel_spectrogram
-            spect_offset = i*2*self.n_channels
-            spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
-            if audio.size(2) > spec.size(2):
-                cond = self.upsample(spec)
-            else:
-                cond = spec
-            acts = fused_add_tanh_sigmoid_multiply(
-                # HACK
-                self.in_layers[0](audio),
-                cond, 
-                n_channels_tensor)
-            # res_skip
-            res_skip_acts = self.res_skip_layers[0](acts) # HACK
-            audio = audio + res_skip_acts
+
+
+        # Manually unroll python code to make TorchScript compiler happy :-)
+        # n_layers = 8
+
+        # -- 0 --
+        i = 0
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[1](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[0](acts) # idx
+        audio = audio + res_skip_acts
+
+        # -- 1 --
+        i = 1
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[1](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[1](acts) # idx
+        audio = audio + res_skip_acts
+
+        # -- 2 --
+        i = 2
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[2](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[2](acts) # idx
+        audio = audio + res_skip_acts
+
+        # -- 3 --
+        i = 3
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[3](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[3](acts) # idx
+        audio = audio + res_skip_acts
+
+        # -- 4 --
+        i = 4
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[4](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[4](acts) # idx
+        audio = audio + res_skip_acts
+
+        # -- 5 --
+        i = 5
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[5](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[5](acts) # idx
+        audio = audio + res_skip_acts
+
+        # -- 6 --
+        i = 6
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[6](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[6](acts) # idx
+        audio = audio + res_skip_acts
+
+        # -- 7 --
+        i = 7
+
+        # split the corresponding mel_spectrogram
+        spect_offset = i*2*self.n_channels
+        spec = spect[:,spect_offset:spect_offset+2*self.n_channels,:]
+        if audio.size(2) > spec.size(2):
+            cond = self.upsample(spec)
+        else:
+            cond = spec
+        acts = fused_add_tanh_sigmoid_multiply(
+            self.in_layers[7](audio), # idx
+            cond, 
+            n_channels_tensor)
+        # res_skip
+        res_skip_acts = self.res_skip_layers[7](acts) # idx
+        audio = audio + res_skip_acts
+
+
+        # --------------------------------
+
         return self.end(audio)
 
 
 class SqueezeWave(torch.nn.Module):
+
     def __init__(self, n_mel_channels, n_flows, n_audio_channel, n_early_every,
                  n_early_size, WN_config):
         super(SqueezeWave, self).__init__()        
@@ -213,47 +342,298 @@ class SqueezeWave(torch.nn.Module):
 
         self.n_remaining_channels = n_remaining_channels  # Useful during inference
 
-    def forward(self, forward_input: Tuple[torch.Tensor, torch.Tensor]):
-        """
-        forward_input[0] = mel_spectrogram:  batch x n_mel_channels x frames
-        forward_input[1] = audio: batch x time
-        """
-        spect, audio = forward_input
+    #def forward(self, forward_input: Tuple[torch.Tensor, torch.Tensor]):
+    #    """
+    #    forward_input[0] = mel_spectrogram:  batch x n_mel_channels x frames
+    #    forward_input[1] = audio: batch x time
+    #    """
+    #    spect, audio = forward_input
 
-        audio = audio.unfold(
-            1, self.n_audio_channel, self.n_audio_channel).permute(0, 2, 1)
-        output_audio = []
-        log_s_list = []
-        log_det_W_list = []
+    #    audio = audio.unfold(
+    #        1, self.n_audio_channel, self.n_audio_channel).permute(0, 2, 1)
+    #    output_audio = []
+    #    log_s_list = []
+    #    log_det_W_list = []
 
-        for k in range(self.n_flows):
-            if k % self.n_early_every == 0 and k > 0:
-                output_audio.append(audio[:,:self.n_early_size,:])
-                audio = audio[:,self.n_early_size:,:]
+    #    for k in range(self.n_flows):
+    #        if k % self.n_early_every == 0 and k > 0:
+    #            output_audio.append(audio[:,:self.n_early_size,:])
+    #            audio = audio[:,self.n_early_size:,:]
 
-            audio, log_det_W = self.convinv[0](audio) # HACK
-            log_det_W_list.append(log_det_W)
+    #        audio, log_det_W = self.convinv[0](audio) # HACK
+    #        log_det_W_list.append(log_det_W)
 
-            n_half = int(audio.size(1)/2)
-            audio_0 = audio[:,:n_half,:]
-            audio_1 = audio[:,n_half:,:]
+    #        n_half = int(audio.size(1)/2)
+    #        audio_0 = audio[:,:n_half,:]
+    #        audio_1 = audio[:,n_half:,:]
 
-            output = self.WN[0]((audio_0, spect)) # HACK
-            log_s = output[:, n_half:, :]
-            b = output[:, :n_half, :]
+    #        output = self.WN[0]((audio_0, spect)) # HACK
+    #        log_s = output[:, n_half:, :]
+    #        b = output[:, :n_half, :]
 
-            audio_1 = (torch.exp(log_s))*audio_1 + b
-            log_s_list.append(log_s)
-            audio = torch.cat([audio_0, audio_1], 1)
+    #        audio_1 = (torch.exp(log_s))*audio_1 + b
+    #        log_s_list.append(log_s)
+    #        audio = torch.cat([audio_0, audio_1], 1)
 
-        output_audio.append(audio)
-        return torch.cat(output_audio, 1), log_s_list, log_det_W_list
+    #    output_audio.append(audio)
+    #    return torch.cat(output_audio, 1), log_s_list, log_det_W_list
+
+
+    # forward for inference
+    def forward(self, spect, sigma:float = 1.0):
+        spect_size = spect.size()
+        l = spect.size(2)*(256 // self.n_audio_channel)
+
+        spect = spect.to(torch.float32)
+
+        audio = torch.zeros(spect.size(0),
+                                       self.n_remaining_channels,
+                                       l, dtype=torch.float32)
+        audio.normal_()
+
+        # Manually unroll the loop to make TorchScript compiler happy :-)
+        # n_flow = 12
+
+        # -- 11 --
+        k = 11
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[11]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[11](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 10 --
+        k = 10
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[10]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[10](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 9 --
+        k = 9
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[9]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[9](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 8 --
+        k = 8
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[8]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[8](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 7 --
+        k = 7
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[7]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[7](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 6 --
+        k = 6
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[6]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[6](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 5 --
+        k = 5
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[5]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[5](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 4 --
+        k = 4
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[4]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[4](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 3 --
+        k = 3
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[3]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[3](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 2 --
+        k = 2
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[2]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[2](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 1 --
+        k = 1
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[1]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[1](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+        # -- 0 --
+        k = 0
+
+        n_half = int(audio.size(1)/2)
+        audio_0 = audio[:,:n_half,:]
+        audio_1 = audio[:,n_half:,:]
+        output = self.WN[0]((audio_0, spect)) # idx
+
+        s = output[:, n_half:, :]
+        b = output[:, :n_half, :]
+        audio_1 = (audio_1 - b)/torch.exp(s)
+        audio = torch.cat([audio_0, audio_1],1)
+
+        audio = self.convinv[0](audio) # , reverse=True) # idx
+
+        if k % self.n_early_every == 0 and k > 0:
+            z = torch.zeros(spect.size(0), self.n_early_size, l, dtype=torch.float32).normal_()
+            audio = torch.cat((sigma*z, audio),1)
+
+
+        # -------------------------------------
+
+        audio = audio.permute(0,2,1).contiguous().view(audio.size(0), -1).data
+        return audio
 
     def infer(self, spect, sigma=1.0):
         spect_size = spect.size()
         l = spect.size(2)*(256 // self.n_audio_channel)
 
         spect = spect.to(torch.float32)
+
         if spect.type() == 'torch.HalfTensor':
             audio = torch.HalfTensor(spect.size(0),
                                           self.n_remaining_channels,
@@ -274,7 +654,7 @@ class SqueezeWave(torch.nn.Module):
             audio_1 = (audio_1 - b)/torch.exp(s)
             audio = torch.cat([audio_0, audio_1],1)
 
-            audio = self.convinv[k](audio, reverse=True)
+            audio = self.convinv[k](audio) #, reverse=True)
 
             if k % self.n_early_every == 0 and k > 0:
                 if spect.type() == 'torch.HalfTensor':
