@@ -100,14 +100,18 @@ class Invertible1x1Conv(torch.nn.Module):
 
         if reverse:
             if not hasattr(self, 'W_inverse'):
+                print("W_inverse")
                 # Reverse computation
                 W_inverse = W.float().inverse()
                 W_inverse = Variable(W_inverse[..., None])
                 self.W_inverse = W_inverse.half()
+            else:
+                print("has W_inverse")
             self.W_inverse = self.W_inverse.to(torch.float32)
             z = F.conv1d(z, self.W_inverse, bias=None, stride=1, padding=0)
             return z
         else:
+            print("forward")
             # Forward computation
             log_det_W = batch_size * n_of_groups * torch.logdet(W)
             z = self.conv(z)

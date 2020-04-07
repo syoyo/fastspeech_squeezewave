@@ -33,6 +33,11 @@ import torch
 from mel2samp import files_to_list, MAX_WAV_VALUE
 from denoiser import Denoiser
 import time
+import json
+
+from glow import SqueezeWave, SqueezeWaveLoss
+
+squeezewave_config = json.loads(open("configs/config_a128_c128.json").read())['squeezewave_config']
 
 def main(mel_files, squeezewave_path, sigma, output_dir, sampling_rate, is_fp16,
          denoiser_strength):
@@ -40,13 +45,21 @@ def main(mel_files, squeezewave_path, sigma, output_dir, sampling_rate, is_fp16,
 
     #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     device = torch.device('cpu')   
-    squeezewave = torch.load(squeezewave_path,map_location=device) ['model']
-    squeezewave = squeezewave.remove_weightnorm(squeezewave)
-    squeezewave.eval()
+    #squeezewave = torch.load(squeezewave_path,map_location=device) ['model']
+    #squeezewave = squeezewave.remove_weightnorm(squeezewave)
+    #squeezewave.eval()
+    #print(squeezewave)
+    #torch.save(squeezewave.state_dict(), "weights.pt")
+
+    squeezewave = SqueezeWave(**squeezewave_config)
+    squeezewave.load_state_dict(torch.load("weights.pt", map_location=device))
+
     if is_fp16:
+        print("is_fp16")
         from apex import amp
         squeezewave, _ = amp.initialize(squeezewave,[],opt_level="O3")
 
+    print('denoiser', denoiser_strength)
     if denoiser_strength > 0:
         denoiser = Denoiser(squeezewave)
     start = time.time()
